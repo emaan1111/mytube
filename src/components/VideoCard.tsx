@@ -69,20 +69,19 @@ export function VideoCard({
   isShort = false,
   onWatchLaterToggle,
   showRemoveWatchLater = false,
+  onVideoSelect,
 }: { 
   video: Video; 
   isShort?: boolean;
   onWatchLaterToggle?: (video: Video, add: boolean) => void;
   showRemoveWatchLater?: boolean;
+  onVideoSelect?: (video: Video) => void;
 }) {
   const [isInWatchLater, setIsInWatchLater] = useState(video.inWatchLater || false);
   const [isAdding, setIsAdding] = useState(false);
 
   const openVideo = () => {
-    const url = isShort
-      ? `https://www.youtube.com/shorts/${video.id}`
-      : `https://www.youtube.com/watch?v=${video.id}`;
-    window.open(url, "_blank");
+    onVideoSelect?.(video);
   };
 
   const handleWatchLater = async (e: React.MouseEvent) => {
@@ -233,11 +232,13 @@ export function VideoGrid({
   isShorts = false,
   onWatchLaterToggle,
   showRemoveWatchLater = false,
+  onVideoSelect,
 }: { 
   videos: Video[]; 
   isShorts?: boolean;
   onWatchLaterToggle?: (video: Video, add: boolean) => void;
   showRemoveWatchLater?: boolean;
+  onVideoSelect?: (video: Video) => void;
 }) {
   if (videos.length === 0) {
     return (
@@ -267,6 +268,7 @@ export function VideoGrid({
           isShort={isShorts}
           onWatchLaterToggle={onWatchLaterToggle}
           showRemoveWatchLater={showRemoveWatchLater}
+          onVideoSelect={onVideoSelect}
         />
       ))}
     </div>

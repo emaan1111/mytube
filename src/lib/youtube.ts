@@ -21,6 +21,12 @@ export interface YouTubeVideo {
   duration?: string;
 }
 
+export interface ChannelVideosPage {
+  playlistId: string | null;
+  videos: YouTubeVideo[];
+  nextPageToken: string | null;
+}
+
 export async function searchChannels(query: string): Promise<YouTubeChannel[]> {
   if (!YOUTUBE_API_KEY) {
     throw new Error("YouTube API key not configured");
@@ -85,72 +91,8 @@ export async function getChannelVideos(
     throw new Error("YouTube API key not configured");
   }
 
-  // First, get the uploads playlist ID
-  const channelResponse = await fetch(
-    `${YOUTUBE_API_BASE}/channels?part=contentDetails&id=${channelId}&key=${YOUTUBE_API_KEY}`
-  );
-
-  if (!channelResponse.ok) {
-    throw new Error("Failed to get channel details");
-  }
-
-  const channelData = await channelResponse.json();
-
-  if (!channelData.items || channelData.items.length === 0) {
-    return [];
-  }
-
-  const uploadsPlaylistId =
-    channelData.items[0].contentDetails.relatedPlaylists.uploads;
-
-  // Get videos from the uploads playlist
-  const videosResponse = await fetch(
-    `${YOUTUBE_API_BASE}/playlistItems?part=snippet&playlistId=${uploadsPlaylistId}&maxResults=${maxResults}&key=${YOUTUBE_API_KEY}`
-  );
-
-  if (!videosResponse.ok) {
-    throw new Error("Failed to get channel videos");
-  }
-
-  const videosData = await videosResponse.json();
-
-  // Get video IDs to fetch duration
-  const videoIds = videosData.items
-    .map((item: any) => item.snippet.resourceId.videoId)
-    .join(",");
-
-  // Fetch video details including duration
-  const detailsResponse = await fetch(
-    `${YOUTUBE_API_BASE}/videos?part=contentDetails&id=${videoIds}&key=${YOUTUBE_API_KEY}`
-  );
-
-  let durations: Record<string, string> = {};
-  if (detailsResponse.ok) {
-    const detailsData = await detailsResponse.json();
-    durations = detailsData.items.reduce((acc: Record<string, string>, item: any) => {
-      acc[item.id] = item.contentDetails.duration;
-      return acc;
-    }, {});
-  }
-
-  return videosData.items.map((item: any) => {
-    const videoId = item.snippet.resourceId.videoId;
-    const duration = durations[videoId] || "";
-    
-    return {
-      id: videoId,
-      title: item.snippet.title,
-      description: item.snippet.description,
-      thumbnail:
-        item.snippet.thumbnails.high?.url ||
-        item.snippet.thumbnails.default?.url,
-      channelId: item.snippet.channelId,
-      channelTitle: item.snippet.channelTitle,
-      publishedAt: item.snippet.publishedAt,
-      duration,
-      isShort: isShortDuration(duration),
-    };
-  });
+  const page = await getChannelVideosPage(channelId, maxResults);
+  return page.videos;
 }
 
 // Parse ISO 8601 duration and check if 3 minutes or less (Shorts limit)
@@ -190,4 +132,92 @@ export async function getVideosFromChannels(
     (a, b) =>
       new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime()
   );
+}
+
+export async function getChannelVideosPage(
+  channelId: string,
+  maxResults: number = 10,
+  pageToken?: string | null,
+  playlistId?: string | null
+): Promise<ChannelVideosPage> {
+  if (!YOUTUBE_API_KEY) {
+    throw new Error("YouTube API key not configured");
+  }
+
+  let uploadsPlaylistId = playlistId ?? null;
+
+  if (!uploadsPlaylistId) {
+    const channelResponse = await fetch(
+      `${YOUTUBE_API_BASE}/channels?part=contentDetails&id=${channelId}&key=${YOUTUBE_API_KEY}`
+    );
+
+    if (!channelResponse.ok) {
+      throw new Error("Failed to get channel details");
+    }
+
+    const channelData = await channelResponse.json();
+
+    if (!channelData.items || channelData.items.length === 0) {
+      return { playlistId: null, videos: [], nextPageToken: null };
+    }
+
+    uploadsPlaylistId =
+      channelData.items[0].contentDetails.relatedPlaylists.uploads;
+  }
+
+  const pageTokenParam = pageToken ? `&pageToken=${pageToken}` : "";
+  const videosResponse = await fetch(
+    `${YOUTUBE_API_BASE}/playlistItems?part=snippet&playlistId=${uploadsPlaylistId}&maxResults=${maxResults}${pageTokenParam}&key=${YOUTUBE_API_KEY}`
+  );
+
+  if (!videosResponse.ok) {
+    throw new Error("Failed to get channel videos");
+  }
+
+  const videosData = await videosResponse.json();
+  const items = videosData.items ?? [];
+
+  const videoIds = items
+    .map((item: any) => item.snippet.resourceId.videoId)
+    .join(",");
+
+  let durations: Record<string, string> = {};
+  if (videoIds.length > 0) {
+    const detailsResponse = await fetch(
+      `${YOUTUBE_API_BASE}/videos?part=contentDetails&id=${videoIds}&key=${YOUTUBE_API_KEY}`
+    );
+
+    if (detailsResponse.ok) {
+      const detailsData = await detailsResponse.json();
+      durations = detailsData.items.reduce((acc: Record<string, string>, item: any) => {
+        acc[item.id] = item.contentDetails.duration;
+        return acc;
+      }, {});
+    }
+  }
+
+  const videos = items.map((item: any) => {
+    const videoId = item.snippet.resourceId.videoId;
+    const duration = durations[videoId] || "";
+
+    return {
+      id: videoId,
+      title: item.snippet.title,
+      description: item.snippet.description,
+      thumbnail:
+        item.snippet.thumbnails.high?.url ||
+        item.snippet.thumbnails.default?.url,
+      channelId: item.snippet.channelId,
+      channelTitle: item.snippet.channelTitle,
+      publishedAt: item.snippet.publishedAt,
+      duration,
+      isShort: isShortDuration(duration),
+    };
+  });
+
+  return {
+    playlistId: uploadsPlaylistId,
+    videos,
+    nextPageToken: videosData.nextPageToken ?? null,
+  };
 }

@@ -3,7 +3,7 @@
 import { useSession } from "next-auth/react";
 import { useEffect, useState, useRef, useCallback } from "react";
 import { VideoGrid } from "@/components/VideoCard";
-import { Loader2, Youtube, Film, Zap, Clock, X } from "lucide-react";
+import { Loader2, Youtube, Film, Zap, Clock, X, Play } from "lucide-react";
 import Link from "next/link";
 import Image from "next/image";
 
@@ -17,6 +17,8 @@ interface Video {
   publishedAt: string;
   isShort?: boolean;
   inWatchLater?: boolean;
+  lastWatchedAt?: string;
+  duration?: string;
 }
 
 interface Channel {
@@ -26,13 +28,14 @@ interface Channel {
   thumbnail: string | null;
 }
 
-type TabType = "videos" | "shorts" | "watchLater";
+type TabType = "videos" | "shorts" | "watchLater" | "continue";
 
 export default function Home() {
   const { data: session, status } = useSession();
   const [videos, setVideos] = useState<Video[]>([]);
   const [shorts, setShorts] = useState<Video[]>([]);
   const [watchLater, setWatchLater] = useState<Video[]>([]);
+  const [continueWatching, setContinueWatching] = useState<Video[]>([]);
   const [channels, setChannels] = useState<Channel[]>([]);
   const [selectedChannel, setSelectedChannel] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -44,11 +47,31 @@ export default function Home() {
   const [hasMoreShorts, setHasMoreShorts] = useState(true);
   const [totalVideos, setTotalVideos] = useState(0);
   const [totalShorts, setTotalShorts] = useState(0);
+  const [selectedVideo, setSelectedVideo] = useState<Video | null>(null);
+  const [filterNewThisWeek, setFilterNewThisWeek] = useState(false);
+  const [filterUnder10Min, setFilterUnder10Min] = useState(false);
+  const [filterUnwatchedOnly, setFilterUnwatchedOnly] = useState(false);
   
   const observerRef = useRef<IntersectionObserver | null>(null);
   const loadMoreRef = useRef<HTMLDivElement>(null);
+  const isFetchingRef = useRef(false);
+
+  const parseJsonSafe = async (response: Response): Promise<unknown | null> => {
+    const raw = await response.text();
+    if (!raw) {
+      return null;
+    }
+
+    try {
+      return JSON.parse(raw);
+    } catch (error) {
+      console.error("Invalid JSON response:", error);
+      return null;
+    }
+  };
 
   const fetchVideos = async (page: number, type: "videos" | "shorts", append = false) => {
+    isFetchingRef.current = true;
     if (page === 1) {
       setLoading(true);
     } else {
@@ -59,18 +82,31 @@ export default function Home() {
       const response = await fetch(`/api/videos?page=${page}&type=${type}`);
       const data = await response.json();
       
+      const mergeUniqueById = (prev: Video[], next: Video[]) => {
+        const seen = new Set<string>();
+        const merged: Video[] = [];
+        for (const video of [...prev, ...next]) {
+          if (!seen.has(video.id)) {
+            seen.add(video.id);
+            merged.push(video);
+          }
+        }
+        return merged;
+      };
+
       if (type === "videos") {
-        setVideos(prev => append ? [...prev, ...data.videos] : data.videos);
+        setVideos(prev => append ? mergeUniqueById(prev, data.videos) : data.videos);
         setHasMoreVideos(data.hasMore);
         setTotalVideos(data.total);
       } else {
-        setShorts(prev => append ? [...prev, ...data.videos] : data.videos);
+        setShorts(prev => append ? mergeUniqueById(prev, data.videos) : data.videos);
         setHasMoreShorts(data.hasMore);
         setTotalShorts(data.total);
       }
     } catch (error) {
       console.error("Failed to fetch videos:", error);
     } finally {
+      isFetchingRef.current = false;
       setLoading(false);
       setLoadingMore(false);
     }
@@ -83,6 +119,45 @@ export default function Home() {
       setWatchLater(data);
     } catch (error) {
       console.error("Failed to fetch watch later:", error);
+    }
+  };
+
+  const parseDurationSeconds = (duration?: string): number | null => {
+    if (!duration) return null;
+    const match = duration.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/);
+    if (!match) return null;
+    const hours = parseInt(match[1] || "0", 10);
+    const minutes = parseInt(match[2] || "0", 10);
+    const seconds = parseInt(match[3] || "0", 10);
+    return hours * 3600 + minutes * 60 + seconds;
+  };
+
+  const isNewThisWeek = (publishedAt: string): boolean => {
+    const published = new Date(publishedAt);
+    if (Number.isNaN(published.getTime())) return false;
+    const diffMs = Date.now() - published.getTime();
+    return diffMs <= 7 * 24 * 60 * 60 * 1000;
+  };
+
+  const fetchContinueWatching = async () => {
+    try {
+      const response = await fetch("/api/continue-watching", { cache: "no-store" });
+
+      if (!response.ok) {
+        console.error(
+          "Failed to fetch continue watching:",
+          response.status,
+          response.statusText
+        );
+        setContinueWatching([]);
+        return;
+      }
+
+      const data = await parseJsonSafe(response);
+      setContinueWatching(Array.isArray(data) ? data : []);
+    } catch (error) {
+      console.error("Failed to fetch continue watching:", error);
+      setContinueWatching([]);
     }
   };
 
@@ -102,6 +177,7 @@ export default function Home() {
       fetchVideos(1, "videos");
       fetchVideos(1, "shorts");
       fetchWatchLater();
+      fetchContinueWatching();
       fetchChannels();
     } else {
       setLoading(false);
@@ -119,15 +195,23 @@ export default function Home() {
 
   // Load more when scrolling
   const loadMore = useCallback(() => {
-    if (loadingMore || activeTab === "watchLater") return;
+    if (
+      loadingMore ||
+      isFetchingRef.current ||
+      activeTab === "watchLater" ||
+      activeTab === "continue"
+    )
+      return;
     
     if (activeTab === "videos" && hasMoreVideos) {
       const nextPage = videosPage + 1;
       setVideosPage(nextPage);
+      isFetchingRef.current = true;
       fetchVideos(nextPage, "videos", true);
     } else if (activeTab === "shorts" && hasMoreShorts) {
       const nextPage = shortsPage + 1;
       setShortsPage(nextPage);
+      isFetchingRef.current = true;
       fetchVideos(nextPage, "shorts", true);
     }
   }, [activeTab, hasMoreVideos, hasMoreShorts, videosPage, shortsPage, loadingMore]);
@@ -140,7 +224,7 @@ export default function Home() {
 
     observerRef.current = new IntersectionObserver(
       (entries) => {
-        if (entries[0].isIntersecting && !loading && !loadingMore) {
+        if (entries[0].isIntersecting && !loading && !loadingMore && !isFetchingRef.current) {
           loadMore();
         }
       },
@@ -167,10 +251,86 @@ export default function Home() {
   const filteredVideos = filterByChannel(videos);
   const filteredShorts = filterByChannel(shorts);
   const filteredWatchLater = filterByChannel(watchLater);
+  const filteredContinue = filterByChannel(continueWatching);
 
-  const currentVideos = activeTab === "videos" ? filteredVideos : activeTab === "shorts" ? filteredShorts : filteredWatchLater;
+  const watchedSet = new Set(continueWatching.map((video) => video.id));
+
+  const applySmartFilters = (videoList: Video[]) => {
+    let next = videoList;
+
+    if (filterNewThisWeek) {
+      next = next.filter((video) => isNewThisWeek(video.publishedAt));
+    }
+
+    if (filterUnder10Min) {
+      next = next.filter((video) => {
+        const seconds = parseDurationSeconds(video.duration);
+        return seconds !== null && seconds <= 600;
+      });
+    }
+
+    if (filterUnwatchedOnly && activeTab !== "continue") {
+      next = next.filter((video) => !watchedSet.has(video.id));
+    }
+
+    return next;
+  };
+
+  const currentVideos = applySmartFilters(
+    activeTab === "videos"
+      ? filteredVideos
+      : activeTab === "shorts"
+        ? filteredShorts
+        : activeTab === "watchLater"
+          ? filteredWatchLater
+          : filteredContinue
+  );
   const hasMore = activeTab === "videos" ? hasMoreVideos : activeTab === "shorts" ? hasMoreShorts : false;
-  const total = activeTab === "videos" ? filteredVideos.length : activeTab === "shorts" ? filteredShorts.length : filteredWatchLater.length;
+  const total =
+    activeTab === "videos"
+      ? filteredVideos.length
+      : activeTab === "shorts"
+        ? filteredShorts.length
+        : activeTab === "watchLater"
+          ? filteredWatchLater.length
+          : filteredContinue.length;
+
+  useEffect(() => {
+    if (!selectedVideo) return;
+
+    try {
+      void fetch("/api/continue-watching", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ video: selectedVideo }),
+        keepalive: true,
+      });
+    } catch (error) {
+      console.error("Failed to record continue watching:", error);
+    }
+
+    setContinueWatching((prev) => {
+      const seen = new Set<string>();
+      const next = [
+        { ...selectedVideo, lastWatchedAt: new Date().toISOString() },
+        ...prev,
+      ].filter((video) => {
+        if (seen.has(video.id)) return false;
+        seen.add(video.id);
+        return true;
+      });
+      return next;
+    });
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setSelectedVideo(null);
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [selectedVideo]);
 
   if (status === "loading" || (loading && videos.length === 0 && shorts.length === 0)) {
     return (
@@ -273,6 +433,59 @@ export default function Home() {
               </span>
             )}
           </button>
+          <button
+            onClick={() => setActiveTab("continue")}
+            className={`flex items-center gap-2 px-4 py-3 font-medium transition-colors ${
+              activeTab === "continue"
+                ? "text-red-500 border-b-2 border-red-500"
+                : "text-gray-400 hover:text-white"
+            }`}
+          >
+            <Play className="w-5 h-5" />
+            Continue
+            {filteredContinue.length > 0 && (
+              <span className="bg-gray-700 text-gray-300 text-xs px-2 py-0.5 rounded-full">
+                {filteredContinue.length}
+              </span>
+            )}
+          </button>
+        </div>
+
+        {/* Smart Filters */}
+        <div className="flex flex-wrap gap-2 mb-6">
+          <button
+            onClick={() => setFilterNewThisWeek((prev) => !prev)}
+            className={`px-3 py-1.5 text-sm rounded-full border transition-colors ${
+              filterNewThisWeek
+                ? "bg-red-600 text-white border-red-600"
+                : "text-gray-300 border-gray-700 hover:border-gray-500"
+            }`}
+          >
+            New this week
+          </button>
+          <button
+            onClick={() => setFilterUnder10Min((prev) => !prev)}
+            className={`px-3 py-1.5 text-sm rounded-full border transition-colors ${
+              filterUnder10Min
+                ? "bg-red-600 text-white border-red-600"
+                : "text-gray-300 border-gray-700 hover:border-gray-500"
+            }`}
+          >
+            Under 10 minutes
+          </button>
+          <button
+            onClick={() => setFilterUnwatchedOnly((prev) => !prev)}
+            disabled={activeTab === "continue"}
+            className={`px-3 py-1.5 text-sm rounded-full border transition-colors ${
+              activeTab === "continue"
+                ? "text-gray-500 border-gray-800 cursor-not-allowed"
+                : filterUnwatchedOnly
+                  ? "bg-red-600 text-white border-red-600"
+                  : "text-gray-300 border-gray-700 hover:border-gray-500"
+            }`}
+          >
+            Unwatched only
+          </button>
         </div>
 
         {currentVideos.length === 0 && !loading ? (
@@ -280,7 +493,9 @@ export default function Home() {
             {selectedChannel ? (
               <>
                 <Youtube className="w-16 h-16 text-gray-600 mx-auto mb-4" />
-                <p className="text-gray-400 text-lg">No {activeTab === "shorts" ? "Shorts" : "videos"} from this channel</p>
+                <p className="text-gray-400 text-lg">
+                  No {activeTab === "shorts" ? "Shorts" : activeTab === "continue" ? "videos" : "videos"} from this channel
+                </p>
                 <button
                   onClick={() => setSelectedChannel(null)}
                   className="mt-4 px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg transition-colors"
@@ -294,6 +509,14 @@ export default function Home() {
                 <p className="text-gray-400 text-lg">No videos in Watch Later</p>
                 <p className="text-gray-500 mt-2 mb-6">
                   Hover over videos and click the clock icon to save them for later
+                </p>
+              </>
+            ) : activeTab === "continue" ? (
+              <>
+                <Play className="w-16 h-16 text-gray-600 mx-auto mb-4" />
+                <p className="text-gray-400 text-lg">Nothing to continue</p>
+                <p className="text-gray-500 mt-2 mb-6">
+                  Start watching videos and they will appear here
                 </p>
               </>
             ) : (
@@ -321,10 +544,11 @@ export default function Home() {
               isShorts={activeTab === "shorts"}
               onWatchLaterToggle={handleWatchLaterToggle}
               showRemoveWatchLater={activeTab === "watchLater"}
+              onVideoSelect={setSelectedVideo}
             />
             
             {/* Load more trigger */}
-            {activeTab !== "watchLater" && !selectedChannel && (
+            {activeTab !== "watchLater" && activeTab !== "continue" && (
               <div ref={loadMoreRef} className="py-8 flex justify-center">
                 {loadingMore && (
                   <Loader2 className="w-8 h-8 text-red-500 animate-spin" />
@@ -385,6 +609,41 @@ export default function Home() {
                   <span className="text-sm font-medium truncate">{channel.title}</span>
                 </button>
               ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {selectedVideo && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4"
+          onClick={() => setSelectedVideo(null)}
+        >
+          <div
+            className="relative w-full max-w-5xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <button
+              onClick={() => setSelectedVideo(null)}
+              className="absolute -top-10 right-0 text-white hover:text-gray-300"
+              aria-label="Close player"
+            >
+              <X className="w-7 h-7" />
+            </button>
+            <div className="aspect-video w-full overflow-hidden rounded-xl bg-black">
+              <iframe
+                src={`https://www.youtube.com/embed/${selectedVideo.id}?autoplay=1&rel=0`}
+                title={selectedVideo.title}
+                className="h-full w-full"
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                allowFullScreen
+              />
+            </div>
+            <div className="mt-3">
+              <h2 className="text-white text-lg font-semibold line-clamp-2">
+                {selectedVideo.title}
+              </h2>
+              <p className="text-gray-300 text-sm mt-1">{selectedVideo.channelTitle}</p>
             </div>
           </div>
         </div>
