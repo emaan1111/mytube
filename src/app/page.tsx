@@ -286,11 +286,13 @@ export default function Home() {
     )
       return;
 
+    // When a channel is selected, still load more if global hasMore is true
+    // because the selected channel's videos might be in later API pages
     const canLoadVideos = selectedChannel
-      ? channelHasMore[selectedChannel] ?? false
+      ? (channelHasMore[selectedChannel] ?? false) || hasMoreVideos
       : hasMoreVideos;
     const canLoadShorts = selectedChannel
-      ? channelHasMore[selectedChannel] ?? false
+      ? (channelHasMore[selectedChannel] ?? false) || hasMoreShorts
       : hasMoreShorts;
 
     if (activeTab === "videos" && canLoadVideos) {
@@ -400,10 +402,12 @@ export default function Home() {
           ? filteredWatchLater
           : filteredContinue
   );
+  // When a channel is selected, we still want to load more if there's more data available globally
+  // because the selected channel's videos might be in later pages
   const hasMore = activeTab === "videos"
-    ? (selectedChannel ? channelHasMore[selectedChannel] ?? false : hasMoreVideos)
+    ? (selectedChannel ? (channelHasMore[selectedChannel] ?? false) || hasMoreVideos : hasMoreVideos)
     : activeTab === "shorts"
-      ? (selectedChannel ? channelHasMore[selectedChannel] ?? false : hasMoreShorts)
+      ? (selectedChannel ? (channelHasMore[selectedChannel] ?? false) || hasMoreShorts : hasMoreShorts)
       : false;
   const total =
     activeTab === "videos"
