@@ -3,7 +3,18 @@
 import { useSession } from "next-auth/react";
 import { useEffect, useState, useRef, useCallback } from "react";
 import { VideoGrid } from "@/components/VideoCard";
-import { Loader2, Youtube, Film, Zap, Clock, X, Play } from "lucide-react";
+import {
+  Loader2,
+  Youtube,
+  Film,
+  Zap,
+  Clock,
+  X,
+  Play,
+  ListOrdered,
+  SkipForward,
+  Trash2,
+} from "lucide-react";
 import Link from "next/link";
 import Image from "next/image";
 
@@ -48,6 +59,8 @@ export default function Home() {
   const [totalVideos, setTotalVideos] = useState(0);
   const [totalShorts, setTotalShorts] = useState(0);
   const [selectedVideo, setSelectedVideo] = useState<Video | null>(null);
+  const [queueMode, setQueueMode] = useState(false);
+  const [playQueue, setPlayQueue] = useState<Video[]>([]);
   const [filterNewThisWeek, setFilterNewThisWeek] = useState(false);
   const [filterUnder10Min, setFilterUnder10Min] = useState(false);
   const [filterUnwatchedOnly, setFilterUnwatchedOnly] = useState(false);
@@ -295,6 +308,56 @@ export default function Home() {
           ? filteredWatchLater.length
           : filteredContinue.length;
 
+  const closePlayer = useCallback(() => {
+    setSelectedVideo(null);
+  }, []);
+
+  const playNextInQueue = useCallback(() => {
+    setPlayQueue((prev) => {
+      if (prev.length === 0) {
+        setSelectedVideo(null);
+        return prev;
+      }
+
+      const [nextVideo, ...rest] = prev;
+      setSelectedVideo(nextVideo);
+      return rest;
+    });
+  }, []);
+
+  const startQueue = useCallback(() => {
+    if (selectedVideo || playQueue.length === 0) {
+      return;
+    }
+    playNextInQueue();
+  }, [selectedVideo, playQueue.length, playNextInQueue]);
+
+  const handleVideoSelect = useCallback(
+    (video: Video) => {
+      if (!queueMode) {
+        setSelectedVideo(video);
+        return;
+      }
+
+      if (!selectedVideo) {
+        setSelectedVideo(video);
+        return;
+      }
+
+      if (selectedVideo.id === video.id) {
+        return;
+      }
+
+      setPlayQueue((prev) => {
+        if (prev.some((queuedVideo) => queuedVideo.id === video.id)) {
+          return prev;
+        }
+        return [...prev, video];
+      });
+    },
+    [queueMode, selectedVideo]
+  );
+
   useEffect(() => {
     if (!selectedVideo) return;
 
@@ -324,13 +387,13 @@ export default function Home() {
 
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
-        setSelectedVideo(null);
+        closePlayer();
       }
     };
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [selectedVideo]);
+  }, [selectedVideo, closePlayer]);
 
   if (status === "loading" || (loading && videos.length === 0 && shorts.length === 0)) {
     return (
@@ -474,6 +537,24 @@ export default function Home() {
             Under 10 minutes
           </button>
           <button
+            onClick={() =>
+              setQueueMode((prev) => {
+                if (prev) {
+                  setPlayQueue([]);
+                }
+                return !prev;
+              })
+            }
+            className={`px-3 py-1.5 text-sm rounded-full border transition-colors flex items-center gap-1 ${
+              queueMode
+                ? "bg-red-600 text-white border-red-600"
+                : "text-gray-300 border-gray-700 hover:border-gray-500"
+            }`}
+          >
+            <ListOrdered className="w-4 h-4" />
+            Queue mode
+          </button>
+          <button
             onClick={() => setFilterUnwatchedOnly((prev) => !prev)}
             disabled={activeTab === "continue"}
             className={`px-3 py-1.5 text-sm rounded-full border transition-colors ${
@@ -487,6 +568,40 @@ export default function Home() {
             Unwatched only
           </button>
         </div>
+
+        {queueMode && (
+          <div className="mb-6 rounded-xl border border-gray-700 bg-gray-900/60 p-3 flex flex-wrap items-center gap-2">
+            <span className="text-sm text-gray-300">
+              Queue: <span className="font-semibold text-white">{playQueue.length}</span> upcoming
+            </span>
+            {!selectedVideo && playQueue.length > 0 && (
+              <button
+                onClick={startQueue}
+                className="px-3 py-1.5 text-sm rounded-md bg-red-600 hover:bg-red-700 text-white transition-colors"
+              >
+                Start queue
+              </button>
+            )}
+            {selectedVideo && playQueue.length > 0 && (
+              <button
+                onClick={playNextInQueue}
+                className="px-3 py-1.5 text-sm rounded-md bg-gray-700 hover:bg-gray-600 text-white transition-colors flex items-center gap-1"
+              >
+                <SkipForward className="w-4 h-4" />
+                Next ({playQueue.length})
+              </button>
+            )}
+            {playQueue.length > 0 && (
+              <button
+                onClick={() => setPlayQueue([])}
+                className="px-3 py-1.5 text-sm rounded-md border border-gray-600 text-gray-300 hover:text-white hover:border-gray-500 transition-colors flex items-center gap-1"
+              >
+                <Trash2 className="w-4 h-4" />
+                Clear queue
+              </button>
+            )}
+          </div>
+        )}
 
         {currentVideos.length === 0 && !loading ? (
           <div className="text-center py-16">
@@ -544,7 +659,7 @@ export default function Home() {
               isShorts={activeTab === "shorts"}
               onWatchLaterToggle={handleWatchLaterToggle}
               showRemoveWatchLater={activeTab === "watchLater"}
-              onVideoSelect={setSelectedVideo}
+              onVideoSelect={handleVideoSelect}
             />
             
             {/* Load more trigger */}
@@ -617,14 +732,14 @@ export default function Home() {
       {selectedVideo && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4"
-          onClick={() => setSelectedVideo(null)}
+          onClick={closePlayer}
         >
           <div
             className="relative w-full max-w-5xl"
             onClick={(event) => event.stopPropagation()}
           >
             <button
-              onClick={() => setSelectedVideo(null)}
+              onClick={closePlayer}
               className="absolute -top-10 right-0 text-white hover:text-gray-300"
               aria-label="Close player"
             >
@@ -644,6 +759,21 @@ export default function Home() {
                 {selectedVideo.title}
               </h2>
               <p className="text-gray-300 text-sm mt-1">{selectedVideo.channelTitle}</p>
+              {queueMode && (
+                <div className="mt-3 flex flex-wrap items-center gap-2">
+                  <span className="text-xs text-gray-400">
+                    {playQueue.length} in queue
+                  </span>
+                  {playQueue.length > 0 && (
+                    <button
+                      onClick={playNextInQueue}
+                      className="px-2.5 py-1 text-xs rounded-md bg-gray-700 hover:bg-gray-600 text-white transition-colors"
+                    >
+                      Play next
+                    </button>
+                  )}
+                </div>
+              )}
             </div>
           </div>
         </div>
