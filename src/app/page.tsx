@@ -810,72 +810,113 @@ export default function Home() {
 
       {/* Right Sidebar - Channels */}
       {channels.length > 0 && (
-        <div className="hidden lg:block w-64 flex-shrink-0">
-          <div className="sticky top-24 bg-gray-800 rounded-xl p-4">
-            <h2 className="text-white font-semibold mb-4">Your Channels</h2>
-            <div className="space-y-2 max-h-[calc(100vh-200px)] overflow-y-auto">
+        <div className="hidden lg:block w-72 flex-shrink-0">
+          <div className="sticky top-24 bg-gray-900 rounded-2xl p-5 shadow-xl border border-gray-700">
+            <div className="flex items-center justify-between mb-5">
+              <h2 className="text-white font-semibold text-lg">Your Channels</h2>
+              <span className="text-xs text-gray-300 bg-gray-700 px-2.5 py-1 rounded-full font-medium">
+                {channels.filter((c) => c.isEnabled).length}/{channels.length}
+              </span>
+            </div>
+            
+            <div className="space-y-1.5 max-h-[calc(100vh-220px)] overflow-y-auto pr-1 scrollbar-thin">
               {/* All Channels option */}
               <button
                 onClick={() => setSelectedChannel(null)}
-                className={`w-full flex items-center gap-3 p-2 rounded-lg transition-colors ${
+                className={`w-full flex items-center gap-3 p-3 rounded-xl transition-all duration-200 ${
                   !selectedChannel
                     ? "bg-red-600 text-white"
-                    : "hover:bg-gray-700 text-gray-300"
+                    : "bg-gray-800 hover:bg-gray-700 text-white"
                 }`}
               >
-                <div className="w-8 h-8 rounded-full bg-gray-600 flex items-center justify-center">
-                  <Youtube className="w-4 h-4" />
+                <div className={`w-9 h-9 rounded-full flex items-center justify-center ${
+                  !selectedChannel ? "bg-red-700" : "bg-gray-700"
+                }`}>
+                  <Youtube className="w-5 h-5" />
                 </div>
-                <span className="text-sm font-medium truncate">
-                  All Channels ({channels.filter((channel) => channel.isEnabled).length})
+                <span className="text-sm font-medium">
+                  All Channels
                 </span>
               </button>
+              
+              <div className="h-px bg-gray-700 my-3" />
               
               {channels.map((channel) => (
                 <div
                   key={channel.id}
-                  className={`w-full flex items-center gap-3 p-2 rounded-lg transition-colors ${
+                  className={`group flex items-center gap-3 p-2.5 rounded-xl transition-all duration-200 ${
                     selectedChannel === channel.channelId
                       ? "bg-red-600 text-white"
                       : channel.isEnabled
-                        ? "hover:bg-gray-700 text-gray-300"
-                        : "text-gray-500"
+                        ? "bg-gray-800 hover:bg-gray-700 text-white"
+                        : "bg-gray-800/50 text-gray-500"
                   }`}
                 >
-                  <input
-                    type="checkbox"
-                    checked={channel.isEnabled}
-                    onChange={(event) =>
-                      handleChannelEnabledToggle(
-                        channel.channelId,
-                        event.target.checked
-                      )
-                    }
-                    className="h-4 w-4 rounded border-gray-500 bg-gray-700 accent-red-600 cursor-pointer"
-                    aria-label={`Toggle ${channel.title}`}
-                  />
+                  {/* Toggle Switch */}
                   <button
-                    onClick={() => setSelectedChannel(channel.channelId)}
+                    onClick={() => handleChannelEnabledToggle(channel.channelId, !channel.isEnabled)}
+                    className={`relative w-12 h-7 rounded-full transition-all duration-300 flex-shrink-0 border-2 ${
+                      channel.isEnabled 
+                        ? "bg-green-500 border-green-400" 
+                        : "bg-gray-500 border-gray-400"
+                    }`}
+                    aria-label={`Toggle ${channel.title}`}
+                  >
+                    <span 
+                      className={`absolute top-0.5 w-5 h-5 rounded-full bg-white shadow-lg transition-all duration-300 ${
+                        channel.isEnabled ? "left-5" : "left-0.5"
+                      }`}
+                    />
+                  </button>
+                  
+                  {/* Channel Info */}
+                  <button
+                    onClick={() => channel.isEnabled && setSelectedChannel(channel.channelId)}
                     disabled={!channel.isEnabled}
                     className="flex min-w-0 flex-1 items-center gap-3 text-left disabled:cursor-not-allowed"
                   >
-                  {channel.thumbnail ? (
-                    <Image
-                      src={channel.thumbnail}
-                      alt={channel.title}
-                      width={32}
-                      height={32}
-                      className="rounded-full"
-                    />
-                  ) : (
-                    <div className="w-8 h-8 rounded-full bg-gray-600 flex items-center justify-center text-white text-sm font-medium">
-                      {channel.title.charAt(0).toUpperCase()}
+                    <div className="relative flex-shrink-0">
+                      {channel.thumbnail ? (
+                        <Image
+                          src={channel.thumbnail}
+                          alt={channel.title}
+                          width={36}
+                          height={36}
+                          className={`rounded-full transition-all ${
+                            channel.isEnabled ? "" : "grayscale opacity-50"
+                          }`}
+                        />
+                      ) : (
+                        <div className={`w-9 h-9 rounded-full flex items-center justify-center text-sm font-bold ${
+                          channel.isEnabled
+                            ? "bg-gray-600 text-white"
+                            : "bg-gray-700 text-gray-500"
+                        }`}>
+                          {channel.title.charAt(0).toUpperCase()}
+                        </div>
+                      )}
                     </div>
-                  )}
-                  <span className="text-sm font-medium truncate">{channel.title}</span>
+                    <span className={`text-sm font-medium truncate ${
+                      !channel.isEnabled ? "line-through text-gray-500" : ""
+                    }`}>
+                      {channel.title}
+                    </span>
                   </button>
                 </div>
               ))}
+            </div>
+            
+            {/* Manage Channels Link */}
+            <div className="mt-4 pt-4 border-t border-gray-700">
+              <Link 
+                href="/channels" 
+                className="flex items-center justify-center gap-2 w-full py-2.5 text-sm text-gray-300 hover:text-white bg-gray-800 hover:bg-gray-700 rounded-lg transition-all duration-200"
+              >
+                <span>Manage Channels</span>
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                </svg>
+              </Link>
             </div>
           </div>
         </div>
