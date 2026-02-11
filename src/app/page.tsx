@@ -37,6 +37,7 @@ interface Channel {
   channelId: string;
   title: string;
   thumbnail: string | null;
+  isEnabled: boolean;
 }
 
 type TabType = "videos" | "shorts" | "watchLater" | "continue";
@@ -56,6 +57,7 @@ export default function Home() {
   const [shortsPage, setShortsPage] = useState(1);
   const [hasMoreVideos, setHasMoreVideos] = useState(true);
   const [hasMoreShorts, setHasMoreShorts] = useState(true);
+  const [channelHasMore, setChannelHasMore] = useState<Record<string, boolean>>({});
   const [totalVideos, setTotalVideos] = useState(0);
   const [totalShorts, setTotalShorts] = useState(0);
   const [selectedVideo, setSelectedVideo] = useState<Video | null>(null);
@@ -93,7 +95,30 @@ export default function Home() {
     
     try {
       const response = await fetch(`/api/videos?page=${page}&type=${type}`);
-      const data = await response.json();
+      const data = await parseJsonSafe(response);
+
+      if (!response.ok) {
+        const message =
+          data && typeof data === "object" && "error" in data
+            ? String(data.error)
+            : "Failed to fetch videos";
+        throw new Error(
+          `${message} (status ${response.status} ${response.statusText})`
+        );
+      }
+
+      if (!data || typeof data !== "object") {
+        throw new Error("Invalid videos response payload");
+      }
+
+      const responseData = data as Record<string, unknown>;
+      const videosData = Array.isArray(responseData.videos) ? responseData.videos : [];
+      const hasMoreData = typeof responseData.hasMore === "boolean" ? responseData.hasMore : false;
+      const channelHasMoreData =
+        responseData.channelHasMore && typeof responseData.channelHasMore === "object"
+          ? (responseData.channelHasMore as Record<string, boolean>)
+          : {};
+      const totalData = typeof responseData.total === "number" ? responseData.total : videosData.length;
       
       const mergeUniqueById = (prev: Video[], next: Video[]) => {
         const seen = new Set<string>();
@@ -108,13 +133,15 @@ export default function Home() {
       };
 
       if (type === "videos") {
-        setVideos(prev => append ? mergeUniqueById(prev, data.videos) : data.videos);
-        setHasMoreVideos(data.hasMore);
-        setTotalVideos(data.total);
+        setVideos(prev => append ? mergeUniqueById(prev, videosData) : videosData);
+        setHasMoreVideos(hasMoreData);
+        setChannelHasMore(channelHasMoreData);
+        setTotalVideos(totalData);
       } else {
-        setShorts(prev => append ? mergeUniqueById(prev, data.videos) : data.videos);
-        setHasMoreShorts(data.hasMore);
-        setTotalShorts(data.total);
+        setShorts(prev => append ? mergeUniqueById(prev, videosData) : videosData);
+        setHasMoreShorts(hasMoreData);
+        setChannelHasMore(channelHasMoreData);
+        setTotalShorts(totalData);
       }
     } catch (error) {
       console.error("Failed to fetch videos:", error);
@@ -184,6 +211,49 @@ export default function Home() {
     }
   };
 
+  const handleChannelEnabledToggle = async (
+    channelId: string,
+    isEnabled: boolean
+  ) => {
+    try {
+      const response = await fetch("/api/channels", {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ channelId, isEnabled }),
+      });
+
+      if (!response.ok) {
+        const errorData = await parseJsonSafe(response);
+        const message =
+          errorData && typeof errorData === "object" && "error" in errorData
+            ? String(errorData.error)
+            : "Failed to update channel";
+        throw new Error(
+          `${message} (status ${response.status} ${response.statusText})`
+        );
+      }
+
+      setChannels((prev) =>
+        prev.map((channel) =>
+          channel.channelId === channelId ? { ...channel, isEnabled } : channel
+        )
+      );
+
+      if (!isEnabled && selectedChannel === channelId) {
+        setSelectedChannel(null);
+      }
+
+      setVideosPage(1);
+      setShortsPage(1);
+      fetchVideos(1, "videos");
+      fetchVideos(1, "shorts");
+    } catch (error) {
+      console.error("Failed to toggle channel:", error);
+    }
+  };
+
   // Initial load
   useEffect(() => {
     if (session) {
@@ -215,19 +285,35 @@ export default function Home() {
       activeTab === "continue"
     )
       return;
-    
-    if (activeTab === "videos" && hasMoreVideos) {
+
+    const canLoadVideos = selectedChannel
+      ? channelHasMore[selectedChannel] ?? false
+      : hasMoreVideos;
+    const canLoadShorts = selectedChannel
+      ? channelHasMore[selectedChannel] ?? false
+      : hasMoreShorts;
+
+    if (activeTab === "videos" && canLoadVideos) {
       const nextPage = videosPage + 1;
       setVideosPage(nextPage);
       isFetchingRef.current = true;
       fetchVideos(nextPage, "videos", true);
-    } else if (activeTab === "shorts" && hasMoreShorts) {
+    } else if (activeTab === "shorts" && canLoadShorts) {
       const nextPage = shortsPage + 1;
       setShortsPage(nextPage);
       isFetchingRef.current = true;
       fetchVideos(nextPage, "shorts", true);
     }
-  }, [activeTab, hasMoreVideos, hasMoreShorts, videosPage, shortsPage, loadingMore]);
+  }, [
+    activeTab,
+    channelHasMore,
+    hasMoreShorts,
+    hasMoreVideos,
+    loadingMore,
+    selectedChannel,
+    shortsPage,
+    videosPage,
+  ]);
 
   // Intersection Observer for infinite scroll
   useEffect(() => {
@@ -255,10 +341,26 @@ export default function Home() {
     };
   }, [loadMore, loading, loadingMore]);
 
-  // Filter videos by selected channel
+  const enabledChannelIds = new Set(
+    channels
+      .filter((channel) => channel.isEnabled)
+      .map((channel) => channel.channelId)
+  );
+  const hasEnabledChannels = channels.some((channel) => channel.isEnabled);
+
+  // Filter videos by selected/enabled channels
   const filterByChannel = (videoList: Video[]) => {
-    if (!selectedChannel) return videoList;
-    return videoList.filter(v => v.channelId === selectedChannel);
+    if (channels.length === 0) {
+      if (!selectedChannel) return videoList;
+      return videoList.filter((video) => video.channelId === selectedChannel);
+    }
+
+    const enabledOnly = videoList.filter((video) =>
+      enabledChannelIds.has(video.channelId)
+    );
+
+    if (!selectedChannel) return enabledOnly;
+    return enabledOnly.filter((video) => video.channelId === selectedChannel);
   };
 
   const filteredVideos = filterByChannel(videos);
@@ -298,7 +400,11 @@ export default function Home() {
           ? filteredWatchLater
           : filteredContinue
   );
-  const hasMore = activeTab === "videos" ? hasMoreVideos : activeTab === "shorts" ? hasMoreShorts : false;
+  const hasMore = activeTab === "videos"
+    ? (selectedChannel ? channelHasMore[selectedChannel] ?? false : hasMoreVideos)
+    : activeTab === "shorts"
+      ? (selectedChannel ? channelHasMore[selectedChannel] ?? false : hasMoreShorts)
+      : false;
   const total =
     activeTab === "videos"
       ? filteredVideos.length
@@ -347,6 +453,21 @@ export default function Home() {
       if (selectedVideo.id === video.id) {
         return;
       }
+
+      setPlayQueue((prev) => {
+        if (prev.some((queuedVideo) => queuedVideo.id === video.id)) {
+          return prev;
+        }
+        return [...prev, video];
+      });
+    },
+    [queueMode, selectedVideo]
+  );
+
+  const handleAddToQueue = useCallback(
+    (video: Video) => {
+      if (!queueMode) return;
+      if (selectedVideo?.id === video.id) return;
 
       setPlayQueue((prev) => {
         if (prev.some((queuedVideo) => queuedVideo.id === video.id)) {
@@ -638,10 +759,18 @@ export default function Home() {
               <>
                 <Youtube className="w-16 h-16 text-gray-600 mx-auto mb-4" />
                 <p className="text-gray-400 text-lg">
-                  {activeTab === "videos" ? "No videos in your feed" : "No Shorts in your feed"}
+                  {channels.length > 0 && !hasEnabledChannels
+                    ? "All channels are unticked"
+                    : activeTab === "videos"
+                      ? "No videos in your feed"
+                      : "No Shorts in your feed"}
                 </p>
                 <p className="text-gray-500 mt-2 mb-6">
-                  Add some channels to start seeing their {activeTab === "videos" ? "videos" : "Shorts"} here
+                  {channels.length > 0 && !hasEnabledChannels
+                    ? "Tick at least one channel from the right sidebar to see content."
+                    : `Add some channels to start seeing their ${
+                        activeTab === "videos" ? "videos" : "Shorts"
+                      } here`}
                 </p>
                 <Link
                   href="/channels"
@@ -660,6 +789,8 @@ export default function Home() {
               onWatchLaterToggle={handleWatchLaterToggle}
               showRemoveWatchLater={activeTab === "watchLater"}
               onVideoSelect={handleVideoSelect}
+              onAddToQueue={handleAddToQueue}
+              canQueue={queueMode}
             />
             
             {/* Load more trigger */}
@@ -695,19 +826,39 @@ export default function Home() {
                 <div className="w-8 h-8 rounded-full bg-gray-600 flex items-center justify-center">
                   <Youtube className="w-4 h-4" />
                 </div>
-                <span className="text-sm font-medium truncate">All Channels</span>
+                <span className="text-sm font-medium truncate">
+                  All Channels ({channels.filter((channel) => channel.isEnabled).length})
+                </span>
               </button>
               
               {channels.map((channel) => (
-                <button
+                <div
                   key={channel.id}
-                  onClick={() => setSelectedChannel(channel.channelId)}
                   className={`w-full flex items-center gap-3 p-2 rounded-lg transition-colors ${
                     selectedChannel === channel.channelId
                       ? "bg-red-600 text-white"
-                      : "hover:bg-gray-700 text-gray-300"
+                      : channel.isEnabled
+                        ? "hover:bg-gray-700 text-gray-300"
+                        : "text-gray-500"
                   }`}
                 >
+                  <input
+                    type="checkbox"
+                    checked={channel.isEnabled}
+                    onChange={(event) =>
+                      handleChannelEnabledToggle(
+                        channel.channelId,
+                        event.target.checked
+                      )
+                    }
+                    className="h-4 w-4 rounded border-gray-500 bg-gray-700 accent-red-600 cursor-pointer"
+                    aria-label={`Toggle ${channel.title}`}
+                  />
+                  <button
+                    onClick={() => setSelectedChannel(channel.channelId)}
+                    disabled={!channel.isEnabled}
+                    className="flex min-w-0 flex-1 items-center gap-3 text-left disabled:cursor-not-allowed"
+                  >
                   {channel.thumbnail ? (
                     <Image
                       src={channel.thumbnail}
@@ -722,7 +873,8 @@ export default function Home() {
                     </div>
                   )}
                   <span className="text-sm font-medium truncate">{channel.title}</span>
-                </button>
+                  </button>
+                </div>
               ))}
             </div>
           </div>

@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import { formatDistanceToNow } from "date-fns";
-import { Clock, Check } from "lucide-react";
+import { Clock, Check, ListPlus } from "lucide-react";
 import { useState } from "react";
 
 interface Video {
@@ -70,18 +70,27 @@ export function VideoCard({
   onWatchLaterToggle,
   showRemoveWatchLater = false,
   onVideoSelect,
+  onAddToQueue,
+  canQueue = false,
 }: { 
   video: Video; 
   isShort?: boolean;
   onWatchLaterToggle?: (video: Video, add: boolean) => void;
   showRemoveWatchLater?: boolean;
   onVideoSelect?: (video: Video) => void;
+  onAddToQueue?: (video: Video) => void;
+  canQueue?: boolean;
 }) {
   const [isInWatchLater, setIsInWatchLater] = useState(video.inWatchLater || false);
   const [isAdding, setIsAdding] = useState(false);
 
   const openVideo = () => {
     onVideoSelect?.(video);
+  };
+
+  const handleAddToQueue = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    onAddToQueue?.(video);
   };
 
   const handleWatchLater = async (e: React.MouseEvent) => {
@@ -145,6 +154,15 @@ export function VideoCard({
               <Clock className="w-4 h-4 text-white" />
             )}
           </button>
+          {canQueue && (
+            <button
+              onClick={handleAddToQueue}
+              className="absolute top-2 right-12 p-1.5 bg-black/70 hover:bg-black/90 rounded-md opacity-0 group-hover:opacity-100 transition-opacity z-10"
+              title="Add to queue"
+            >
+              <ListPlus className="w-4 h-4 text-white" />
+            </button>
+          )}
           
           <div className="absolute bottom-0 left-0 right-0 p-3 opacity-0 group-hover:opacity-100 transition-opacity">
             <p className="text-white text-sm font-medium line-clamp-2">{video.title}</p>
@@ -194,6 +212,15 @@ export function VideoCard({
             <Clock className="w-5 h-5 text-white" />
           )}
         </button>
+        {canQueue && (
+          <button
+            onClick={handleAddToQueue}
+            className="absolute top-2 right-12 p-2 bg-black/70 hover:bg-black/90 rounded-md opacity-0 group-hover:opacity-100 transition-opacity z-10"
+            title="Add to queue"
+          >
+            <ListPlus className="w-5 h-5 text-white" />
+          </button>
+        )}
         {/* Hover overlay */}
         <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors pointer-events-none" />
       </div>
@@ -233,12 +260,16 @@ export function VideoGrid({
   onWatchLaterToggle,
   showRemoveWatchLater = false,
   onVideoSelect,
+  onAddToQueue,
+  canQueue = false,
 }: { 
   videos: Video[]; 
   isShorts?: boolean;
   onWatchLaterToggle?: (video: Video, add: boolean) => void;
   showRemoveWatchLater?: boolean;
   onVideoSelect?: (video: Video) => void;
+  onAddToQueue?: (video: Video) => void;
+  canQueue?: boolean;
 }) {
   if (videos.length === 0) {
     return (
@@ -269,6 +300,8 @@ export function VideoGrid({
           onWatchLaterToggle={onWatchLaterToggle}
           showRemoveWatchLater={showRemoveWatchLater}
           onVideoSelect={onVideoSelect}
+          onAddToQueue={onAddToQueue}
+          canQueue={canQueue}
         />
       ))}
     </div>

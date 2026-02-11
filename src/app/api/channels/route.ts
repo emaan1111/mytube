@@ -105,3 +105,38 @@ export async function DELETE(request: NextRequest) {
 
   return NextResponse.json({ success: true });
 }
+
+export async function PATCH(request: NextRequest) {
+  const session = await getServerSession(authOptions);
+
+  if (!session?.user?.id) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const { channelId, isEnabled } = await request.json();
+
+  if (!channelId || typeof isEnabled !== "boolean") {
+    return NextResponse.json(
+      { error: "Channel ID and isEnabled are required" },
+      { status: 400 }
+    );
+  }
+
+  const result = await prisma.channel.updateMany({
+    where: {
+      userId: session.user.id,
+      channelId,
+    },
+    data: {
+      isEnabled,
+    },
+  });
+
+  if (result.count === 0) {
+    return NextResponse.json({ error: "Channel not found" }, { status: 404 });
+  }
+
+  invalidateCache(session.user.id);
+
+  return NextResponse.json({ success: true });
+}

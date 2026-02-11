@@ -1,0 +1,2 @@
+ALTER TABLE "Channel"
+ADD COLUMN "isEnabled" BOOLEAN NOT NULL DEFAULT true;
