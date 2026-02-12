@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
-import { authOptions, getUserYouTubeToken } from "@/lib/auth";
+import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { getChannelVideosPage, YouTubeQuotaError } from "@/lib/youtube";
 
@@ -29,9 +29,6 @@ export async function POST(
     if (!channel) {
       return NextResponse.json({ error: "Channel not found" }, { status: 404 });
     }
-
-    // Get user's YouTube OAuth token (uses their quota instead of ours)
-    const accessToken = await getUserYouTubeToken(userId);
 
     // Calculate date range
     const now = new Date();
@@ -83,8 +80,7 @@ export async function POST(
         channelId,
         50, // Max allowed by YouTube API
         pageToken,
-        playlistId,
-        accessToken // Use user's OAuth token
+        playlistId
       );
 
       // Save the playlist ID for future use

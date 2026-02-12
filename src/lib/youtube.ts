@@ -8,34 +8,6 @@ export class YouTubeQuotaError extends Error {
   }
 }
 
-// Helper to build auth params - prefer OAuth token, fallback to API key
-function getAuthParams(accessToken?: string | null): string {
-  if (accessToken) {
-    return ""; // Will use Authorization header instead
-  }
-  if (YOUTUBE_API_KEY) {
-    return `&key=${YOUTUBE_API_KEY}`;
-  }
-  throw new Error("No YouTube authentication available");
-}
-
-function getAuthHeaders(accessToken?: string | null): HeadersInit {
-  if (accessToken) {
-    return { Authorization: `Bearer ${accessToken}` };
-  }
-  return {};
-}
-
-async function youtubeApiFetch(url: string, accessToken?: string | null): Promise<Response> {
-  // Add API key to URL if not using OAuth
-  const authParam = accessToken ? "" : (YOUTUBE_API_KEY ? `&key=${YOUTUBE_API_KEY}` : "");
-  const finalUrl = url.includes("?") ? `${url}${authParam}` : `${url}?${authParam.slice(1)}`;
-  
-  return fetch(finalUrl, {
-    headers: getAuthHeaders(accessToken),
-  });
-}
-
 async function checkQuotaError(response: Response): Promise<void> {
   if (response.status === 403) {
     const errorData = await response.json();
@@ -71,12 +43,15 @@ export interface ChannelVideosPage {
   nextPageToken: string | null;
 }
 
-export async function searchChannels(query: string, accessToken?: string | null): Promise<YouTubeChannel[]> {
-  const response = await youtubeApiFetch(
+export async function searchChannels(query: string): Promise<YouTubeChannel[]> {
+  if (!YOUTUBE_API_KEY) {
+    throw new Error("YouTube API key not configured");
+  }
+
+  const response = await fetch(
     `${YOUTUBE_API_BASE}/search?part=snippet&type=channel&q=${encodeURIComponent(
       query
-    )}&maxResults=10`,
-    accessToken
+    )}&maxResults=10&key=${YOUTUBE_API_KEY}`
   );
 
   if (!response.ok) {
@@ -95,12 +70,14 @@ export async function searchChannels(query: string, accessToken?: string | null)
 }
 
 export async function getChannelDetails(
-  channelId: string,
-  accessToken?: string | null
+  channelId: string
 ): Promise<YouTubeChannel | null> {
-  const response = await youtubeApiFetch(
-    `${YOUTUBE_API_BASE}/channels?part=snippet,statistics&id=${channelId}`,
-    accessToken
+  if (!YOUTUBE_API_KEY) {
+    throw new Error("YouTube API key not configured");
+  }
+
+  const response = await fetch(
+    `${YOUTUBE_API_BASE}/channels?part=snippet,statistics&id=${channelId}&key=${YOUTUBE_API_KEY}`
   );
 
   if (!response.ok) {
@@ -126,10 +103,9 @@ export async function getChannelDetails(
 
 export async function getChannelVideos(
   channelId: string,
-  maxResults: number = 10,
-  accessToken?: string | null
+  maxResults: number = 10
 ): Promise<YouTubeVideo[]> {
-  const page = await getChannelVideosPage(channelId, maxResults, null, null, accessToken);
+  const page = await getChannelVideosPage(channelId, maxResults);
   return page.videos;
 }
 
@@ -176,15 +152,17 @@ export async function getChannelVideosPage(
   channelId: string,
   maxResults: number = 10,
   pageToken?: string | null,
-  playlistId?: string | null,
-  accessToken?: string | null
+  playlistId?: string | null
 ): Promise<ChannelVideosPage> {
+  if (!YOUTUBE_API_KEY) {
+    throw new Error("YouTube API key not configured");
+  }
+
   let uploadsPlaylistId = playlistId ?? null;
 
   if (!uploadsPlaylistId) {
-    const channelResponse = await youtubeApiFetch(
-      `${YOUTUBE_API_BASE}/channels?part=contentDetails&id=${channelId}`,
-      accessToken
+    const channelResponse = await fetch(
+      `${YOUTUBE_API_BASE}/channels?part=contentDetails&id=${channelId}&key=${YOUTUBE_API_KEY}`
     );
 
     if (!channelResponse.ok) {
@@ -210,9 +188,8 @@ export async function getChannelVideosPage(
   }
 
   const pageTokenParam = pageToken ? `&pageToken=${pageToken}` : "";
-  const videosResponse = await youtubeApiFetch(
-    `${YOUTUBE_API_BASE}/playlistItems?part=snippet&playlistId=${uploadsPlaylistId}&maxResults=${maxResults}${pageTokenParam}`,
-    accessToken
+  const videosResponse = await fetch(
+    `${YOUTUBE_API_BASE}/playlistItems?part=snippet&playlistId=${uploadsPlaylistId}&maxResults=${maxResults}${pageTokenParam}&key=${YOUTUBE_API_KEY}`
   );
 
   if (!videosResponse.ok) {
@@ -229,9 +206,8 @@ export async function getChannelVideosPage(
 
   let durations: Record<string, string> = {};
   if (videoIds.length > 0) {
-    const detailsResponse = await youtubeApiFetch(
-      `${YOUTUBE_API_BASE}/videos?part=contentDetails&id=${videoIds}`,
-      accessToken
+    const detailsResponse = await fetch(
+      `${YOUTUBE_API_BASE}/videos?part=contentDetails&id=${videoIds}&key=${YOUTUBE_API_KEY}`
     );
 
     if (detailsResponse.ok) {
