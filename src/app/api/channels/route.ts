@@ -15,9 +15,21 @@ export async function GET() {
   const channels = await prisma.channel.findMany({
     where: { userId: session.user.id },
     orderBy: { createdAt: "desc" },
+    include: {
+      _count: {
+        select: { videos: true }
+      }
+    }
   });
 
-  return NextResponse.json(channels);
+  // Transform to include video count
+  const channelsWithCount = channels.map(channel => ({
+    ...channel,
+    videoCount: channel._count.videos,
+    _count: undefined,
+  }));
+
+  return NextResponse.json(channelsWithCount);
 }
 
 export async function POST(request: NextRequest) {

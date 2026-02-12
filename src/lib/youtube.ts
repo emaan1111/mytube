@@ -1,6 +1,50 @@
 const YOUTUBE_API_KEY = process.env.YOUTUBE_API_KEY;
 const YOUTUBE_API_BASE = "https://www.googleapis.com/youtube/v3";
 
+export class YouTubeQuotaError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "YouTubeQuotaError";
+  }
+}
+
+// Helper to build auth params - prefer OAuth token, fallback to API key
+function getAuthParams(accessToken?: string | null): string {
+  if (accessToken) {
+    return ""; // Will use Authorization header instead
+  }
+  if (YOUTUBE_API_KEY) {
+    return `&key=${YOUTUBE_API_KEY}`;
+  }
+  throw new Error("No YouTube authentication available");
+}
+
+function getAuthHeaders(accessToken?: string | null): HeadersInit {
+  if (accessToken) {
+    return { Authorization: `Bearer ${accessToken}` };
+  }
+  return {};
+}
+
+async function youtubeApiFetch(url: string, accessToken?: string | null): Promise<Response> {
+  // Add API key to URL if not using OAuth
+  const authParam = accessToken ? "" : (YOUTUBE_API_KEY ? `&key=${YOUTUBE_API_KEY}` : "");
+  const finalUrl = url.includes("?") ? `${url}${authParam}` : `${url}?${authParam.slice(1)}`;
+  
+  return fetch(finalUrl, {
+    headers: getAuthHeaders(accessToken),
+  });
+}
+
+async function checkQuotaError(response: Response): Promise<void> {
+  if (response.status === 403) {
+    const errorData = await response.json();
+    if (errorData?.error?.errors?.[0]?.reason === "quotaExceeded") {
+      throw new YouTubeQuotaError("YouTube API quota exceeded. Please try again tomorrow.");
+    }
+  }
+}
+
 export interface YouTubeChannel {
   id: string;
   title: string;
@@ -27,18 +71,16 @@ export interface ChannelVideosPage {
   nextPageToken: string | null;
 }
 
-export async function searchChannels(query: string): Promise<YouTubeChannel[]> {
-  if (!YOUTUBE_API_KEY) {
-    throw new Error("YouTube API key not configured");
-  }
-
-  const response = await fetch(
+export async function searchChannels(query: string, accessToken?: string | null): Promise<YouTubeChannel[]> {
+  const response = await youtubeApiFetch(
     `${YOUTUBE_API_BASE}/search?part=snippet&type=channel&q=${encodeURIComponent(
       query
-    )}&maxResults=10&key=${YOUTUBE_API_KEY}`
+    )}&maxResults=10`,
+    accessToken
   );
 
   if (!response.ok) {
+    await checkQuotaError(response);
     throw new Error("Failed to search channels");
   }
 
@@ -53,17 +95,16 @@ export async function searchChannels(query: string): Promise<YouTubeChannel[]> {
 }
 
 export async function getChannelDetails(
-  channelId: string
+  channelId: string,
+  accessToken?: string | null
 ): Promise<YouTubeChannel | null> {
-  if (!YOUTUBE_API_KEY) {
-    throw new Error("YouTube API key not configured");
-  }
-
-  const response = await fetch(
-    `${YOUTUBE_API_BASE}/channels?part=snippet,statistics&id=${channelId}&key=${YOUTUBE_API_KEY}`
+  const response = await youtubeApiFetch(
+    `${YOUTUBE_API_BASE}/channels?part=snippet,statistics&id=${channelId}`,
+    accessToken
   );
 
   if (!response.ok) {
+    await checkQuotaError(response);
     throw new Error("Failed to get channel details");
   }
 
@@ -85,13 +126,10 @@ export async function getChannelDetails(
 
 export async function getChannelVideos(
   channelId: string,
-  maxResults: number = 10
+  maxResults: number = 10,
+  accessToken?: string | null
 ): Promise<YouTubeVideo[]> {
-  if (!YOUTUBE_API_KEY) {
-    throw new Error("YouTube API key not configured");
-  }
-
-  const page = await getChannelVideosPage(channelId, maxResults);
+  const page = await getChannelVideosPage(channelId, maxResults, null, null, accessToken);
   return page.videos;
 }
 
@@ -138,21 +176,27 @@ export async function getChannelVideosPage(
   channelId: string,
   maxResults: number = 10,
   pageToken?: string | null,
-  playlistId?: string | null
+  playlistId?: string | null,
+  accessToken?: string | null
 ): Promise<ChannelVideosPage> {
-  if (!YOUTUBE_API_KEY) {
-    throw new Error("YouTube API key not configured");
-  }
-
   let uploadsPlaylistId = playlistId ?? null;
 
   if (!uploadsPlaylistId) {
-    const channelResponse = await fetch(
-      `${YOUTUBE_API_BASE}/channels?part=contentDetails&id=${channelId}&key=${YOUTUBE_API_KEY}`
+    const channelResponse = await youtubeApiFetch(
+      `${YOUTUBE_API_BASE}/channels?part=contentDetails&id=${channelId}`,
+      accessToken
     );
 
     if (!channelResponse.ok) {
-      throw new Error("Failed to get channel details");
+      // Check for quota error first (need to clone response to read body twice)
+      if (channelResponse.status === 403) {
+        const errorData = await channelResponse.json();
+        if (errorData?.error?.errors?.[0]?.reason === "quotaExceeded") {
+          throw new YouTubeQuotaError("YouTube API quota exceeded");
+        }
+        throw new Error(`Failed to get channel details: ${JSON.stringify(errorData)}`);
+      }
+      throw new Error(`Failed to get channel details: ${channelResponse.status}`);
     }
 
     const channelData = await channelResponse.json();
@@ -166,11 +210,13 @@ export async function getChannelVideosPage(
   }
 
   const pageTokenParam = pageToken ? `&pageToken=${pageToken}` : "";
-  const videosResponse = await fetch(
-    `${YOUTUBE_API_BASE}/playlistItems?part=snippet&playlistId=${uploadsPlaylistId}&maxResults=${maxResults}${pageTokenParam}&key=${YOUTUBE_API_KEY}`
+  const videosResponse = await youtubeApiFetch(
+    `${YOUTUBE_API_BASE}/playlistItems?part=snippet&playlistId=${uploadsPlaylistId}&maxResults=${maxResults}${pageTokenParam}`,
+    accessToken
   );
 
   if (!videosResponse.ok) {
+    await checkQuotaError(videosResponse);
     throw new Error("Failed to get channel videos");
   }
 
@@ -183,8 +229,9 @@ export async function getChannelVideosPage(
 
   let durations: Record<string, string> = {};
   if (videoIds.length > 0) {
-    const detailsResponse = await fetch(
-      `${YOUTUBE_API_BASE}/videos?part=contentDetails&id=${videoIds}&key=${YOUTUBE_API_KEY}`
+    const detailsResponse = await youtubeApiFetch(
+      `${YOUTUBE_API_BASE}/videos?part=contentDetails&id=${videoIds}`,
+      accessToken
     );
 
     if (detailsResponse.ok) {

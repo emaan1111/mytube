@@ -57,7 +57,6 @@ export default function Home() {
   const [shortsPage, setShortsPage] = useState(1);
   const [hasMoreVideos, setHasMoreVideos] = useState(true);
   const [hasMoreShorts, setHasMoreShorts] = useState(true);
-  const [channelHasMore, setChannelHasMore] = useState<Record<string, boolean>>({});
   const [totalVideos, setTotalVideos] = useState(0);
   const [totalShorts, setTotalShorts] = useState(0);
   const [selectedVideo, setSelectedVideo] = useState<Video | null>(null);
@@ -114,10 +113,6 @@ export default function Home() {
       const responseData = data as Record<string, unknown>;
       const videosData = Array.isArray(responseData.videos) ? responseData.videos : [];
       const hasMoreData = typeof responseData.hasMore === "boolean" ? responseData.hasMore : false;
-      const channelHasMoreData =
-        responseData.channelHasMore && typeof responseData.channelHasMore === "object"
-          ? (responseData.channelHasMore as Record<string, boolean>)
-          : {};
       const totalData = typeof responseData.total === "number" ? responseData.total : videosData.length;
       
       const mergeUniqueById = (prev: Video[], next: Video[]) => {
@@ -135,12 +130,10 @@ export default function Home() {
       if (type === "videos") {
         setVideos(prev => append ? mergeUniqueById(prev, videosData) : videosData);
         setHasMoreVideos(hasMoreData);
-        setChannelHasMore(channelHasMoreData);
         setTotalVideos(totalData);
       } else {
         setShorts(prev => append ? mergeUniqueById(prev, videosData) : videosData);
         setHasMoreShorts(hasMoreData);
-        setChannelHasMore(channelHasMoreData);
         setTotalShorts(totalData);
       }
     } catch (error) {
@@ -286,21 +279,12 @@ export default function Home() {
     )
       return;
 
-    // When a channel is selected, still load more if global hasMore is true
-    // because the selected channel's videos might be in later API pages
-    const canLoadVideos = selectedChannel
-      ? (channelHasMore[selectedChannel] ?? false) || hasMoreVideos
-      : hasMoreVideos;
-    const canLoadShorts = selectedChannel
-      ? (channelHasMore[selectedChannel] ?? false) || hasMoreShorts
-      : hasMoreShorts;
-
-    if (activeTab === "videos" && canLoadVideos) {
+    if (activeTab === "videos" && hasMoreVideos) {
       const nextPage = videosPage + 1;
       setVideosPage(nextPage);
       isFetchingRef.current = true;
       fetchVideos(nextPage, "videos", true);
-    } else if (activeTab === "shorts" && canLoadShorts) {
+    } else if (activeTab === "shorts" && hasMoreShorts) {
       const nextPage = shortsPage + 1;
       setShortsPage(nextPage);
       isFetchingRef.current = true;
@@ -308,11 +292,9 @@ export default function Home() {
     }
   }, [
     activeTab,
-    channelHasMore,
     hasMoreShorts,
     hasMoreVideos,
     loadingMore,
-    selectedChannel,
     shortsPage,
     videosPage,
   ]);
@@ -402,12 +384,10 @@ export default function Home() {
           ? filteredWatchLater
           : filteredContinue
   );
-  // When a channel is selected, we still want to load more if there's more data available globally
-  // because the selected channel's videos might be in later pages
   const hasMore = activeTab === "videos"
-    ? (selectedChannel ? (channelHasMore[selectedChannel] ?? false) || hasMoreVideos : hasMoreVideos)
+    ? hasMoreVideos
     : activeTab === "shorts"
-      ? (selectedChannel ? (channelHasMore[selectedChannel] ?? false) || hasMoreShorts : hasMoreShorts)
+      ? hasMoreShorts
       : false;
   const total =
     activeTab === "videos"

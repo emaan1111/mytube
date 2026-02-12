@@ -46,6 +46,7 @@ model User {
   accounts         Account[]
   sessions         Session[]
   channels         Channel[]
+  videos           Video[]
   watchLater       WatchLater[]
   continueWatching ContinueWatching[]
 }
@@ -64,12 +65,40 @@ model Channel {
   title       String
   description String?
   thumbnail   String?
+  playlistId  String?  // Uploads playlist ID - cached to save API calls
   isEnabled   Boolean  @default(true)
   userId      String
   createdAt   DateTime @default(now())
+  lastFetched DateTime? // Last time videos were fetched for this channel
   user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  videos      Video[]
 
   @@unique([userId, channelId])
+}
+
+// Cached videos from YouTube - fetched on demand
+model Video {
+  id           String   @id @default(cuid())
+  videoId      String   // YouTube video ID
+  title        String
+  description  String?
+  thumbnail    String?
+  channelId    String   // YouTube channel ID
+  channelTitle String
+  publishedAt  DateTime
+  duration     String?
+  isShort      Boolean  @default(false)
+  userId       String
+  dbChannelId  String   // Reference to our Channel model
+  createdAt    DateTime @default(now())
+  
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  channel      Channel  @relation(fields: [dbChannelId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, videoId])
+  @@index([userId, channelId])
+  @@index([userId, publishedAt])
+  @@index([channelId, publishedAt])
 }
 
 model WatchLater {
