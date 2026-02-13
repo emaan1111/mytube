@@ -49,6 +49,7 @@ model User {
   videos           Video[]
   watchLater       WatchLater[]
   continueWatching ContinueWatching[]
+  notInterested    NotInterested[]
 }
 
 model VerificationToken {
@@ -134,6 +135,17 @@ model ContinueWatching {
   lastWatchedAt DateTime @default(now())
   userId        String
   user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, videoId])
+}
+
+// Videos the user doesn't want to see
+model NotInterested {
+  id        String   @id @default(cuid())
+  videoId   String   // YouTube video ID
+  userId    String
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId, videoId])
 }

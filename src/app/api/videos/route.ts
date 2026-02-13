@@ -35,6 +35,13 @@ export async function GET(request: NextRequest) {
 
     const enabledChannelIds = enabledChannels.map((c) => c.channelId);
 
+    // Get not interested video IDs to exclude
+    const notInterested = await prisma.notInterested.findMany({
+      where: { userId },
+      select: { videoId: true },
+    });
+    const notInterestedIds = notInterested.map((n) => n.videoId);
+
     // Build the where clause
     const whereClause: any = {
       userId,
@@ -42,6 +49,11 @@ export async function GET(request: NextRequest) {
         ? channelFilter 
         : { in: enabledChannelIds },
     };
+
+    // Exclude not interested videos
+    if (notInterestedIds.length > 0) {
+      whereClause.videoId = { notIn: notInterestedIds };
+    }
 
     // Filter by type (shorts vs regular videos)
     if (type === "videos") {

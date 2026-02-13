@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import { formatDistanceToNow } from "date-fns";
-import { Clock, Check, ListPlus } from "lucide-react";
+import { Clock, Check, ListPlus, EyeOff } from "lucide-react";
 import { useState } from "react";
 
 interface Video {
@@ -72,6 +72,7 @@ export function VideoCard({
   onVideoSelect,
   onAddToQueue,
   canQueue = false,
+  onNotInterested,
 }: { 
   video: Video; 
   isShort?: boolean;
@@ -80,9 +81,11 @@ export function VideoCard({
   onVideoSelect?: (video: Video) => void;
   onAddToQueue?: (video: Video) => void;
   canQueue?: boolean;
+  onNotInterested?: (video: Video) => void;
 }) {
   const [isInWatchLater, setIsInWatchLater] = useState(video.inWatchLater || false);
   const [isAdding, setIsAdding] = useState(false);
+  const [isHidden, setIsHidden] = useState(false);
 
   const openVideo = () => {
     onVideoSelect?.(video);
@@ -91,6 +94,21 @@ export function VideoCard({
   const handleAddToQueue = (e: React.MouseEvent) => {
     e.stopPropagation();
     onAddToQueue?.(video);
+  };
+
+  const handleNotInterested = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    try {
+      await fetch("/api/not-interested", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ videoId: video.id }),
+      });
+      setIsHidden(true);
+      onNotInterested?.(video);
+    } catch (error) {
+      console.error("Failed to mark as not interested:", error);
+    }
   };
 
   const handleWatchLater = async (e: React.MouseEvent) => {
@@ -123,6 +141,11 @@ export function VideoCard({
 
   const formattedDuration = formatDuration(video.duration);
   const timeAgo = formatDistanceToNow(new Date(video.publishedAt), { addSuffix: true });
+
+  // Hide if marked as not interested
+  if (isHidden) {
+    return null;
+  }
 
   if (isShort) {
     // Shorts card - vertical style like YouTube
@@ -163,6 +186,14 @@ export function VideoCard({
               <ListPlus className="w-4 h-4 text-white" />
             </button>
           )}
+          {/* Not Interested button */}
+          <button
+            onClick={handleNotInterested}
+            className="absolute top-2 left-2 p-1.5 bg-black/70 hover:bg-red-600/90 rounded-md opacity-0 group-hover:opacity-100 transition-opacity z-10"
+            title="Not interested"
+          >
+            <EyeOff className="w-4 h-4 text-white" />
+          </button>
           
           <div className="absolute bottom-0 left-0 right-0 p-3 opacity-0 group-hover:opacity-100 transition-opacity">
             <p className="text-white text-sm font-medium line-clamp-2">{video.title}</p>
@@ -221,6 +252,14 @@ export function VideoCard({
             <ListPlus className="w-5 h-5 text-white" />
           </button>
         )}
+        {/* Not Interested button */}
+        <button
+          onClick={handleNotInterested}
+          className="absolute top-2 left-2 p-2 bg-black/70 hover:bg-red-600/90 rounded-md opacity-0 group-hover:opacity-100 transition-opacity z-10"
+          title="Not interested"
+        >
+          <EyeOff className="w-5 h-5 text-white" />
+        </button>
         {/* Hover overlay */}
         <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors pointer-events-none" />
       </div>
@@ -262,6 +301,7 @@ export function VideoGrid({
   onVideoSelect,
   onAddToQueue,
   canQueue = false,
+  onNotInterested,
 }: { 
   videos: Video[]; 
   isShorts?: boolean;
@@ -270,6 +310,7 @@ export function VideoGrid({
   onVideoSelect?: (video: Video) => void;
   onAddToQueue?: (video: Video) => void;
   canQueue?: boolean;
+  onNotInterested?: (video: Video) => void;
 }) {
   if (videos.length === 0) {
     return (
@@ -302,6 +343,7 @@ export function VideoGrid({
           onVideoSelect={onVideoSelect}
           onAddToQueue={onAddToQueue}
           canQueue={canQueue}
+          onNotInterested={onNotInterested}
         />
       ))}
     </div>
