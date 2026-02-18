@@ -14,9 +14,11 @@ import {
   ListOrdered,
   SkipForward,
   Trash2,
+  RefreshCw,
 } from "lucide-react";
 import Link from "next/link";
 import Image from "next/image";
+import RamadanCelebration from "@/components/RamadanCelebration";
 
 interface Video {
   id: string;
@@ -65,6 +67,8 @@ export default function Home() {
   const [filterNewThisWeek, setFilterNewThisWeek] = useState(false);
   const [filterUnder10Min, setFilterUnder10Min] = useState(false);
   const [filterUnwatchedOnly, setFilterUnwatchedOnly] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [refreshResult, setRefreshResult] = useState<string | null>(null);
   
   const observerRef = useRef<IntersectionObserver | null>(null);
   const loadMoreRef = useRef<HTMLDivElement>(null);
@@ -247,6 +251,35 @@ export default function Home() {
     }
   };
 
+  // Refresh all channels from YouTube (fetch new videos)
+  const refreshChannels = async () => {
+    setRefreshing(true);
+    setRefreshResult(null);
+    try {
+      const response = await fetch("/api/channels/refresh", { method: "POST" });
+      const data = await response.json();
+      if (data.totalNew > 0) {
+        setRefreshResult(`Found ${data.totalNew} new video${data.totalNew === 1 ? "" : "s"}`);
+        // Re-fetch from DB to show the new videos
+        setVideosPage(1);
+        setShortsPage(1);
+        await Promise.all([
+          fetchVideos(1, "videos"),
+          fetchVideos(1, "shorts"),
+        ]);
+      }
+      if (data.quotaExceeded) {
+        setRefreshResult("YouTube API quota exceeded");
+      }
+    } catch (error) {
+      console.error("Failed to refresh channels:", error);
+    } finally {
+      setRefreshing(false);
+      // Auto-clear the result message after 5 seconds
+      setTimeout(() => setRefreshResult(null), 5000);
+    }
+  };
+
   // Initial load
   useEffect(() => {
     if (session) {
@@ -255,6 +288,8 @@ export default function Home() {
       fetchWatchLater();
       fetchContinueWatching();
       fetchChannels();
+      // Check for new videos in the background
+      refreshChannels();
     } else {
       setLoading(false);
     }
@@ -528,11 +563,23 @@ export default function Home() {
 
   return (
     <div className="flex max-w-[1800px] mx-auto px-4 sm:px-6 lg:px-8 py-8 gap-6">
+      {/* Ramadan Celebration - auto-expires after 3 days */}
+      <RamadanCelebration />
+      
       {/* Main Content */}
       <div className="flex-1 min-w-0">
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-4">
             <h1 className="text-2xl font-bold text-white">Your Feed</h1>
+            {refreshing && (
+              <div className="flex items-center gap-2 text-sm text-gray-400">
+                <RefreshCw className="w-4 h-4 animate-spin" />
+                Checking for new videos…
+              </div>
+            )}
+            {!refreshing && refreshResult && (
+              <span className="text-sm text-green-400">{refreshResult}</span>
+            )}
             {selectedChannel && (
               <button
                 onClick={() => setSelectedChannel(null)}
