@@ -88,12 +88,14 @@ export default function Home() {
     }
   };
 
-  const fetchVideos = async (page: number, type: "videos" | "shorts", append = false) => {
+  const fetchVideos = async (page: number, type: "videos" | "shorts", append = false, isBackground = false) => {
     isFetchingRef.current = true;
-    if (page === 1) {
-      setLoading(true);
-    } else {
-      setLoadingMore(true);
+    if (!isBackground) {
+      if (page === 1) {
+        setLoading(true);
+      } else {
+        setLoadingMore(true);
+      }
     }
     
     try {
@@ -144,8 +146,10 @@ export default function Home() {
       console.error("Failed to fetch videos:", error);
     } finally {
       isFetchingRef.current = false;
-      setLoading(false);
-      setLoadingMore(false);
+      if (!isBackground) {
+        setLoading(false);
+        setLoadingMore(false);
+      }
     }
   };
 
@@ -264,8 +268,8 @@ export default function Home() {
         setVideosPage(1);
         setShortsPage(1);
         await Promise.all([
-          fetchVideos(1, "videos"),
-          fetchVideos(1, "shorts"),
+          fetchVideos(1, "videos", false, true),
+          fetchVideos(1, "shorts", false, true),
         ]);
       }
       if (data.quotaExceeded) {
@@ -296,13 +300,13 @@ export default function Home() {
   }, [session]);
 
   // Handle watch later toggle
-  const handleWatchLaterToggle = (video: Video, add: boolean) => {
+  const handleWatchLaterToggle = useCallback((video: Video, add: boolean) => {
     if (add) {
       setWatchLater(prev => [{ ...video, inWatchLater: true }, ...prev]);
     } else {
       setWatchLater(prev => prev.filter(v => v.id !== video.id));
     }
-  };
+  }, []);
 
   // Load more when scrolling
   const loadMore = useCallback(() => {

@@ -3,7 +3,7 @@
 import Image from "next/image";
 import { formatDistanceToNow } from "date-fns";
 import { Clock, Check, ListPlus, EyeOff } from "lucide-react";
-import { useState } from "react";
+import { useState, memo } from "react";
 
 interface Video {
   id: string;
@@ -64,7 +64,7 @@ function formatViewCount(viewCount?: string): string {
   return `${count} views`;
 }
 
-export function VideoCard({ 
+export const VideoCard = memo(function VideoCard({ 
   video, 
   isShort = false,
   onWatchLaterToggle,
@@ -291,7 +291,7 @@ export function VideoCard({
       </div>
     </div>
   );
-}
+});
 
 export function VideoGrid({ 
   videos, 
