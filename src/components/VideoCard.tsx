@@ -293,7 +293,7 @@ export const VideoCard = memo(function VideoCard({
   );
 });
 
-export function VideoGrid({ 
+export const VideoGrid = memo(function VideoGrid({ 
   videos, 
   isShorts = false,
   onWatchLaterToggle,
@@ -348,4 +348,4 @@ export function VideoGrid({
       ))}
     </div>
   );
-}
+});

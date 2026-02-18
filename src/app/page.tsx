@@ -70,6 +70,15 @@ export default function Home() {
   const [refreshing, setRefreshing] = useState(false);
   const [refreshResult, setRefreshResult] = useState<string | null>(null);
   
+  const selectedVideoRef = useRef<Video | null>(null);
+  const queueModeRef = useRef(queueMode);
+  
+  // Update refs when state changes
+  useEffect(() => {
+    selectedVideoRef.current = selectedVideo;
+    queueModeRef.current = queueMode;
+  }, [selectedVideo, queueMode]);
+
   const observerRef = useRef<IntersectionObserver | null>(null);
   const loadMoreRef = useRef<HTMLDivElement>(null);
   const isFetchingRef = useRef(false);
@@ -364,36 +373,41 @@ export default function Home() {
     };
   }, [loadMore, loading, loadingMore]);
 
-  const enabledChannelIds = new Set(
+  // Memoize enabled channels set to avoid recreation on every render
+  const enabledChannelIds = useMemo(() => new Set(
     channels
       .filter((channel) => channel.isEnabled)
       .map((channel) => channel.channelId)
-  );
-  const hasEnabledChannels = channels.some((channel) => channel.isEnabled);
+  ), [channels]);
+  
+  const hasEnabledChannels = useMemo(() => channels.some((channel) => channel.isEnabled), [channels]);
 
   // Filter videos by selected/enabled channels
-  const filterByChannel = (videoList: Video[]) => {
+  const filterByChannel = useCallback((videoList: Video[]) => {
     if (channels.length === 0) {
       if (!selectedChannel) return videoList;
       return videoList.filter((video) => video.channelId === selectedChannel);
     }
-
+    
+    // First filter by enabled channels (if no specific channel selected) or just pass through
+    // We recreate the set if we didn't memoize it, causing extra work.
+    
     const enabledOnly = videoList.filter((video) =>
       enabledChannelIds.has(video.channelId)
     );
 
     if (!selectedChannel) return enabledOnly;
     return enabledOnly.filter((video) => video.channelId === selectedChannel);
-  };
+  }, [channels.length, enabledChannelIds, selectedChannel]);
 
-  const filteredVideos = filterByChannel(videos);
-  const filteredShorts = filterByChannel(shorts);
-  const filteredWatchLater = filterByChannel(watchLater);
-  const filteredContinue = filterByChannel(continueWatching);
+  const filteredVideos = useMemo(() => filterByChannel(videos), [filterByChannel, videos]);
+  const filteredShorts = useMemo(() => filterByChannel(shorts), [filterByChannel, shorts]);
+  const filteredWatchLater = useMemo(() => filterByChannel(watchLater), [filterByChannel, watchLater]);
+  const filteredContinue = useMemo(() => filterByChannel(continueWatching), [filterByChannel, continueWatching]);
 
-  const watchedSet = new Set(continueWatching.map((video) => video.id));
+  const watchedSet = useMemo(() => new Set(continueWatching.map((video) => video.id)), [continueWatching]);
 
-  const applySmartFilters = (videoList: Video[]) => {
+  const applySmartFilters = useCallback((videoList: Video[]) => {
     let next = videoList;
 
     if (filterNewThisWeek) {
@@ -412,9 +426,9 @@ export default function Home() {
     }
 
     return next;
-  };
+  }, [filterNewThisWeek, filterUnder10Min, filterUnwatchedOnly, activeTab, watchedSet]);
 
-  const currentVideos = applySmartFilters(
+  const currentVideos = useMemo(() => applySmartFilters(
     activeTab === "videos"
       ? filteredVideos
       : activeTab === "shorts"
@@ -422,7 +436,14 @@ export default function Home() {
         : activeTab === "watchLater"
           ? filteredWatchLater
           : filteredContinue
-  );
+  ), [
+    activeTab, 
+    filteredVideos, 
+    filteredShorts, 
+    filteredWatchLater, 
+    filteredContinue, 
+    applySmartFilters
+  ]);
   const hasMore = activeTab === "videos"
     ? hasMoreVideos
     : activeTab === "shorts"
@@ -463,17 +484,20 @@ export default function Home() {
 
   const handleVideoSelect = useCallback(
     (video: Video) => {
-      if (!queueMode) {
+      const currentQueueMode = queueModeRef.current;
+      const currentSelectedVideo = selectedVideoRef.current;
+
+      if (!currentQueueMode) {
         setSelectedVideo(video);
         return;
       }
 
-      if (!selectedVideo) {
+      if (!currentSelectedVideo) {
         setSelectedVideo(video);
         return;
       }
 
-      if (selectedVideo.id === video.id) {
+      if (currentSelectedVideo.id === video.id) {
         return;
       }
 
@@ -484,13 +508,16 @@ export default function Home() {
         return [...prev, video];
       });
     },
-    [queueMode, selectedVideo]
+    []
   );
 
   const handleAddToQueue = useCallback(
     (video: Video) => {
-      if (!queueMode) return;
-      if (selectedVideo?.id === video.id) return;
+      const currentQueueMode = queueModeRef.current;
+      const currentSelectedVideo = selectedVideoRef.current;
+
+      if (!currentQueueMode) return;
+      if (currentSelectedVideo?.id === video.id) return;
 
       setPlayQueue((prev) => {
         if (prev.some((queuedVideo) => queuedVideo.id === video.id)) {
@@ -499,7 +526,7 @@ export default function Home() {
         return [...prev, video];
       });
     },
-    [queueMode, selectedVideo]
+    []
   );
 
   useEffect(() => {
